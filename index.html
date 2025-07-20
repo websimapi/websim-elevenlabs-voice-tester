@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ElevenLabs Voice Tester</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>ElevenLabs Voice ID Tester</h1>
+            <p>Test any ElevenLabs voice ID with custom text</p>
+        </header>
+
+        <main>
+            <section class="voice-section">
+                <h2>Voice Management</h2>
+                <div class="input-group">
+                    <input type="text" id="voiceIdInput" placeholder="Enter ElevenLabs Voice ID..." />
+                    <button id="addVoiceBtn">Add Voice</button>
+                </div>
+                <div class="voice-list" id="voiceList">
+                    <!-- Voice items will be added here -->
+                </div>
+            </section>
+
+            <section class="tts-section">
+                <h2>Text-to-Speech</h2>
+                <div class="input-group">
+                    <textarea id="textInput" placeholder="Enter text to speak..." rows="4"></textarea>
+                </div>
+                <div class="controls">
+                    <button id="speakBtn" disabled>Speak</button>
+                    <button id="stopBtn" disabled>Stop</button>
+                    <audio id="audioPlayer" controls style="display: none;"></audio>
+                </div>
+            </section>
+
+            <section class="preset-section">
+                <h2>Preset Voice IDs</h2>
+                <div class="preset-buttons">
+                    <button class="preset-btn" data-voice="pNInz6obpgDQGcFmaJgB">Adam</button>
+                    <button class="preset-btn" data-voice="ErXwobaYiY01gIq0dVjL">Antoni</button>
+                    <button class="preset-btn" data-voice="TxGEqnHWrfWFTfGW9XjX">Josh (French)</button>
+                    <button class="preset-btn" data-voice="VR6AewLTigWG4xSOukaG">Arnold</button>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <script type="module" src="app.js"></script>
+<script defer src="https://static.cloudflareinsights.com/beacon.min.js/v8c78df7c7c0f484497ecbca7046644da1771523124516" integrity="sha512-8DS7rgIrAmghBFwoOTujcf6D9rXvH8xm8JQ1Ja01h9QX8EzXldiszufYa4IFfKdLUKTTrnSFXLDkUEOTrZQ8Qg==" data-cf-beacon='{"version":"2024.11.0","token":"4c6229722a6346bc8eb5cb0e5eae5d41","server_timing":{"name":{"cfCacheStatus":true,"cfEdge":true,"cfExtPri":true,"cfL4":true,"cfOrigin":true,"cfSpeedBrain":true},"location_startswith":null}}' crossorigin="anonymous"></script>
+</body>
+</html>
+
