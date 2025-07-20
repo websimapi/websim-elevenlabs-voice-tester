@@ -5,6 +5,13 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ElevenLabs Voice Tester</title>
     <link rel="stylesheet" href="styles.css">
+    <script type="importmap">
+    {
+        "imports": {
+            "peerjs": "https://cdn.jsdelivr.net/npm/peerjs@1.4.7/dist/peerjs.min.js"
+        }
+    }
+    </script>
 </head>
 <body>
     <div class="container">
@@ -46,6 +53,19 @@
                     <button class="preset-btn" data-voice="VR6AewLTigWG4xSOukaG">Arnold</button>
                 </div>
             </section>
+
+            <section class="peer-section">
+                <h2>Peer Connection</h2>
+                <div class="input-group">
+                    <button id="hostBtn">Host Session</button>
+                    <input type="text" id="sessionIdDisplay" placeholder="Session ID" readonly />
+                </div>
+                <div class="input-group">
+                    <input type="text" id="sessionIdInput" placeholder="Enter Session ID to join..." />
+                    <button id="joinBtn">Join Session</button>
+                </div>
+                <div id="peerStatus" style="margin-top:10px;"></div>
+            </section>
         </main>
     </div>
 
@@ -53,4 +73,3 @@
 <script defer src="https://static.cloudflareinsights.com/beacon.min.js/v8c78df7c7c0f484497ecbca7046644da1771523124516" integrity="sha512-8DS7rgIrAmghBFwoOTujcf6D9rXvH8xm8JQ1Ja01h9QX8EzXldiszufYa4IFfKdLUKTTrnSFXLDkUEOTrZQ8Qg==" data-cf-beacon='{"version":"2024.11.0","token":"4c6229722a6346bc8eb5cb0e5eae5d41","server_timing":{"name":{"cfCacheStatus":true,"cfEdge":true,"cfExtPri":true,"cfL4":true,"cfOrigin":true,"cfSpeedBrain":true},"location_startswith":null}}' crossorigin="anonymous"></script>
 </body>
 </html>
-
