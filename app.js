@@ -1,7 +1,7 @@
 let voices = JSON.parse(localStorage.getItem('elevenlabs_voices') || '[]');
 let selectedVoiceId = localStorage.getItem('selected_voice') || null;
 let currentAudioUrl = null;
-const audioCache = new Map(); // Cache for audio blobs: key -> { blob, text, voiceId }
+let receivedAudioBlobUrl = null; // For peer to manage received audio
 
 // PeerJS variables
 let peer = null;
@@ -23,12 +23,10 @@ const hostIdInput = document.getElementById('hostIdInput');
 const peerStatus = document.getElementById('peer-status');
 const myPeerIdSpan = document.getElementById('myPeerId');
 const connectContainer = document.getElementById('connect-container');
-const audioHistoryList = document.getElementById('audioHistoryList');
 
 // Initialize
 renderVoiceList();
 updateButtonStates();
-renderAudioHistory();
 
 // Event listeners
 addVoiceBtn.addEventListener('click', addVoice);
@@ -116,16 +114,7 @@ function connectToHost() {
 
         conn.on('data', data => {
             if (data.type === 'tts-blob') {
-                const blob = new Blob([data.blob], { type: 'audio/mpeg' });
-                const localUrl = URL.createObjectURL(blob);
-                audioCache.set(data.id, { blob, text: data.text, voiceId: data.voiceId, url: localUrl });
-                renderAudioHistory();
-                playAudio(localUrl);
-            } else if (data.type === 'play-cached') {
-                const cachedAudio = audioCache.get(data.id);
-                if (cachedAudio && cachedAudio.url) {
-                    playAudio(cachedAudio.url);
-                }
+                playReceivedAudioBlob(data.blob);
             }
         });
 
@@ -164,21 +153,21 @@ function updatePeerUI(isConnected, isPeer) {
     connectContainer.style.display = isConnected ? 'none' : 'block';
     disconnectBtn.style.display = isConnected ? 'block' : 'none';
 
-    // Disable TTS controls if a peer and not connected
-    const disableTTS = isPeer && !isConnected;
-    textInput.disabled = disableTTS;
-    document.querySelector('.voice-section').style.pointerEvents = disableTTS ? 'none' : 'auto';
-    document.querySelector('.preset-section').style.pointerEvents = disableTTS ? 'none' : 'auto';
-
+    // Disable adding/selecting voices if connected as a peer
+    const isClient = isPeer && isConnected;
+    document.querySelector('.voice-section').style.pointerEvents = isClient ? 'none' : 'auto';
+    document.querySelector('.preset-section').style.pointerEvents = isClient ? 'none' : 'auto';
+    
+    // As per previous logic, which seems correct
     if (isPeer && isConnected) {
         // Peer is connected, they can only listen
         document.querySelector('.tts-section .input-group').style.display = 'none';
         document.querySelector('.tts-section .controls button#speakBtn').style.display = 'none';
-        document.querySelector('.tts-section .controls button#stopBtn').style.display = 'none';
+        document.querySelector('.tts-section .controls button#stopBtn').style.display = 'inline-flex';
     } else {
         document.querySelector('.tts-section .input-group').style.display = 'block';
-        document.querySelector('.tts-section .controls button#speakBtn').style.display = 'inline-flex';
-        document.querySelector('.tts-section .controls button#stopBtn').style.display = 'inline-flex';
+        document.querySelector('.tts-section .controls button').style.display = 'inline-flex';
+        renderVoiceList(); // Re-render to enable/disable buttons
     }
 }
 
@@ -229,164 +218,104 @@ function deleteVoice(voiceId) {
 function renderVoiceList() {
     voiceList.innerHTML = '';
     
-    // Clear existing onclick handlers to prevent memory leaks
-    Array.from(voiceList.getElementsByTagName('button')).forEach(btn => {
-        const newBtn = btn.cloneNode(true);
-        btn.parentNode.replaceChild(newBtn, btn);
-    });
-
     voices.forEach(voice => {
         const item = document.createElement('div');
         item.className = `voice-item ${voice.id === selectedVoiceId ? 'selected' : ''}`;
         
+        const isClient = !isHost && peer && conn;
+
         item.innerHTML = `
             <div class="voice-info">
                 <div class="voice-id">${voice.name}</div>
             </div>
             <div class="voice-actions">
-                <button class="select-btn" data-voice-id="${voice.id}" ${isHost || !peer ? '' : 'disabled title="Only host can select voices"'} >Select</button>
-                <button class="delete-btn" data-voice-id="${voice.id}" ${isHost || !peer ? '' : 'disabled title="Only host can manage voices"'}>Delete</button>
+                <button ${isClient ? 'disabled title="Only host can select voices"' : `onclick="selectVoice('${voice.id}')"`} >Select</button>
+                <button class="delete-btn" ${isClient ? 'disabled title="Only host can manage voices"' : `onclick="deleteVoice('${voice.id}')"`}>Delete</button>
             </div>
         `;
         
         voiceList.appendChild(item);
     });
-
-    voiceList.querySelectorAll('.select-btn').forEach(btn => {
-        btn.addEventListener('click', (e) => selectVoice(e.target.dataset.voiceId));
-    });
-    voiceList.querySelectorAll('.delete-btn').forEach(btn => {
-        btn.addEventListener('click', (e) => deleteVoice(e.target.dataset.voiceId));
-    });
 }
 
 async function speakText() {
     if (!selectedVoiceId || !textInput.value.trim()) return;
-    const text = textInput.value.trim();
-    const audioId = `${selectedVoiceId}:${text}`;
-
-    if (audioCache.has(audioId)) {
-        const cached = audioCache.get(audioId);
-        playAudio(cached.url);
-        if (isHost && conn && conn.open) {
-            conn.send({ type: 'play-cached', id: audioId });
-        }
-        return;
-    }
 
     speakBtn.disabled = true;
     speakBtn.textContent = 'Generating...';
 
     try {
         const result = await websim.textToSpeech({
-            text: text,
+            text: textInput.value,
             voice: selectedVoiceId,
         });
 
-        const response = await fetch(result.url);
-        const blob = await response.blob();
-        const localUrl = URL.createObjectURL(blob);
-
-        audioCache.set(audioId, { blob, text, voiceId: selectedVoiceId, url: localUrl });
-        renderAudioHistory();
-        
-        if (isHost && conn && conn.open) {
-            conn.send({ type: 'tts-blob', id: audioId, blob: blob, text: text, voiceId: selectedVoiceId });
+        // Clean up previous audio
+        if (currentAudioUrl) {
+            URL.revokeObjectURL(currentAudioUrl);
         }
 
-        playAudio(localUrl);
+        currentAudioUrl = result.url;
+        
+        // Play audio for the user who initiated it (the host)
+        audioPlayer.src = currentAudioUrl;
+        audioPlayer.style.display = 'block';
+        await audioPlayer.play();
+        updateButtonStates();
+        
+        // If host, fetch blob and send to peer.
+        if (isHost && conn && conn.open) {
+            const response = await fetch(currentAudioUrl);
+            const audioBlob = await response.blob();
+            conn.send({ type: 'tts-blob', blob: audioBlob });
+        }
         
     } catch (error) {
         console.error('Error generating speech:', error);
         alert('Error generating speech. Please check the voice ID and try again.');
     } finally {
-        updateButtonStates();
+        speakBtn.disabled = false;
         speakBtn.textContent = 'Speak';
     }
 }
 
-function playAudio(url) {
-    audioPlayer.src = url;
-    audioPlayer.style.display = 'block';
-    audioPlayer.play().catch(e => console.error("Error playing audio:", e));
-    updateButtonStates();
-}
+function playReceivedAudioBlob(blob) {
+    console.log('Received audio blob to play:', blob);
+    if (receivedAudioBlobUrl) {
+        URL.revokeObjectURL(receivedAudioBlobUrl);
+    }
 
-function playReceivedAudio(url) {
-    console.log('Received audio to play:', url);
-    playAudio(url);
+    receivedAudioBlobUrl = URL.createObjectURL(blob);
+    audioPlayer.src = receivedAudioBlobUrl;
+    audioPlayer.style.display = 'block';
+    audioPlayer.play().catch(e => console.error("Error playing received audio:", e));
+    updateButtonStates();
 }
 
 function stopAudio() {
     audioPlayer.pause();
     audioPlayer.currentTime = 0;
+    if (receivedAudioBlobUrl) {
+        URL.revokeObjectURL(receivedAudioBlobUrl);
+        receivedAudioBlobUrl = null;
+    }
+    // Note: We don't revoke currentAudioUrl here because it's managed by speakText
+    // and might be needed again if the host wants to replay without regenerating.
 }
 
 function updateButtonStates() {
-    const canSpeak = (isHost || !peer) && selectedVoiceId && textInput.value.trim();
-    speakBtn.disabled = !canSpeak || (speakBtn.textContent === 'Generating...');
-    stopBtn.disabled = !audioPlayer.src || audioPlayer.paused;
+    const canSpeak = (isHost || !peer) && selectedVoiceId && textInput.value.trim() !== '';
+    speakBtn.disabled = !canSpeak;
+    stopBtn.disabled = audioPlayer.paused || !audioPlayer.src;
 }
 
 function saveVoices() {
     localStorage.setItem('elevenlabs_voices', JSON.stringify(voices));
 }
 
-function renderAudioHistory() {
-    audioHistoryList.innerHTML = '';
-
-    if (audioCache.size === 0) {
-        audioHistoryList.innerHTML = '<p>No audio generated yet.</p>';
-        return;
-    }
-
-    const reversedCache = Array.from(audioCache.entries()).reverse();
-
-    for (const [audioId, { text, voiceId, url }] of reversedCache) {
-        const item = document.createElement('div');
-        item.className = 'audio-history-item';
-        
-        const voice = voices.find(v => v.id === voiceId);
-        const voiceName = voice ? (voice.name.includes(voice.id) ? voice.name.split(' (')[0] : voice.name) : 'Unknown Voice';
-
-        item.innerHTML = `
-            <div class="audio-history-info">
-                <p class="history-text">${text}</p>
-                <p class="history-voice">Voice: ${voiceName}</p>
-            </div>
-            <button class="play-btn" data-audio-id="${audioId}" title="Play audio">
-                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
-                  <path d="M10.804 8 5 4.633v6.734L10.804 8zm.792-.696a.802.802 0 0 1 0 1.392l-6.363 3.692C4.713 12.69 4 12.345 4 11.692V4.308c0-.653.713-.998 1.233-.696l6.363 3.692z"/>
-                </svg>
-            </button>
-        `;
-
-        audioHistoryList.appendChild(item);
-    }
-
-    audioHistoryList.querySelectorAll('.play-btn').forEach(btn => {
-        btn.addEventListener('click', (e) => {
-            const button = e.currentTarget;
-            const audioId = button.dataset.audioId;
-            const cachedAudio = audioCache.get(audioId);
-            if (cachedAudio && cachedAudio.url) {
-                playAudio(cachedAudio.url);
-                if (isHost && conn && conn.open) {
-                    conn.send({ type: 'play-cached', id: audioId });
-                }
-            }
-        });
-    });
-}
-
 // Text input listener
 textInput.addEventListener('input', updateButtonStates);
 
-audioPlayer.addEventListener('play', updateButtonStates);
-audioPlayer.addEventListener('pause', updateButtonStates);
-audioPlayer.addEventListener('ended', updateButtonStates);
-
 // Make functions global for onclick handlers
-// No longer needed as we use event listeners
-// window.selectVoice = selectVoice;
-// window.deleteVoice = deleteVoice;
+window.selectVoice = selectVoice;
+window.deleteVoice = deleteVoice;
