@@ -176,8 +176,9 @@ function hostSession() {
     }
     peer = new Peer();
     peer.on('open', id => {
+        // display the generated session ID
         sessionIdDisplay.value = id;
-        peerStatus.textContent = 'Waiting for connection...';
+        peerStatus.innerHTML = `<strong>Your Session ID:</strong> ${id}<br><em>Waiting for connection...</em>`;
     });
     peer.on('connection', conn => {
         conn.on('open', () => {
