@@ -1,10 +1,11 @@
-import { Peer } from 'peerjs';
-
 let voices = JSON.parse(localStorage.getItem('elevenlabs_voices') || '[]');
 let selectedVoiceId = localStorage.getItem('selected_voice') || null;
 let currentAudioUrl = null;
+
+// PeerJS variables
 let peer = null;
-let connections = [];
+let conn = null;
+let isHost = false;
 
 // DOM elements
 const voiceIdInput = document.getElementById('voiceIdInput');
@@ -15,10 +16,12 @@ const speakBtn = document.getElementById('speakBtn');
 const stopBtn = document.getElementById('stopBtn');
 const audioPlayer = document.getElementById('audioPlayer');
 const hostBtn = document.getElementById('hostBtn');
-const sessionIdDisplay = document.getElementById('sessionIdDisplay');
-const sessionIdInput = document.getElementById('sessionIdInput');
-const joinBtn = document.getElementById('joinBtn');
-const peerStatus = document.getElementById('peerStatus');
+const connectBtn = document.getElementById('connectBtn');
+const disconnectBtn = document.getElementById('disconnectBtn');
+const hostIdInput = document.getElementById('hostIdInput');
+const peerStatus = document.getElementById('peer-status');
+const myPeerIdSpan = document.getElementById('myPeerId');
+const connectContainer = document.getElementById('connect-container');
 
 // Initialize
 renderVoiceList();
@@ -33,8 +36,17 @@ voiceIdInput.addEventListener('keypress', (e) => {
 speakBtn.addEventListener('click', speakText);
 stopBtn.addEventListener('click', stopAudio);
 
-hostBtn.addEventListener('click', hostSession);
-joinBtn.addEventListener('click', joinSession);
+// PeerJS Listeners
+hostBtn.addEventListener('click', startHosting);
+connectBtn.addEventListener('click', connectToHost);
+disconnectBtn.addEventListener('click', disconnect);
+myPeerIdSpan.addEventListener('click', () => {
+    if (peer && peer.id) {
+        navigator.clipboard.writeText(peer.id).then(() => {
+            alert('Host ID copied to clipboard!');
+        });
+    }
+});
 
 // Preset buttons
 document.querySelectorAll('.preset-btn').forEach(btn => {
@@ -44,6 +56,117 @@ document.querySelectorAll('.preset-btn').forEach(btn => {
         addVoiceFromPreset(voiceId, name);
     });
 });
+
+function startHosting() {
+    isHost = true;
+    peer = new Peer();
+
+    peer.on('open', id => {
+        myPeerIdSpan.textContent = id;
+        peerStatus.textContent = `Hosting. Waiting for connection...`;
+        updatePeerUI(true, false);
+    });
+
+    peer.on('connection', connection => {
+        conn = connection;
+        peerStatus.textContent = `Connected to Peer: ${conn.peer}`;
+        peerStatus.classList.add('connected');
+
+        conn.on('open', () => {
+            console.log('Connection opened with peer:', conn.peer);
+        });
+
+        conn.on('close', () => {
+            peerStatus.textContent = 'Peer disconnected. You are still hosting.';
+            peerStatus.classList.remove('connected');
+            conn = null;
+        });
+    });
+
+    peer.on('error', err => {
+        console.error('PeerJS error:', err);
+        alert(`Error: ${err.message}`);
+        disconnect();
+    });
+}
+
+function connectToHost() {
+    const hostId = hostIdInput.value.trim();
+    if (!hostId) {
+        alert('Please enter a Host ID.');
+        return;
+    }
+
+    isHost = false;
+    peer = new Peer();
+
+    peer.on('open', id => {
+        myPeerIdSpan.textContent = id;
+        conn = peer.connect(hostId);
+        peerStatus.textContent = `Connecting to ${hostId}...`;
+
+        conn.on('open', () => {
+            peerStatus.textContent = `Connected to Host: ${conn.peer}`;
+            peerStatus.classList.add('connected');
+            updatePeerUI(true, true);
+        });
+
+        conn.on('data', data => {
+            if (data.type === 'tts') {
+                playReceivedAudio(data.url);
+            }
+        });
+
+        conn.on('close', () => {
+            peerStatus.textContent = 'Disconnected from host.';
+            peerStatus.classList.remove('connected');
+            disconnect();
+        });
+    });
+
+    peer.on('error', err => {
+        console.error('PeerJS error:', err);
+        alert(`Error: ${err.message}`);
+        disconnect();
+    });
+}
+
+function disconnect() {
+    if (conn) {
+        conn.close();
+    }
+    if (peer) {
+        peer.destroy();
+    }
+    conn = null;
+    peer = null;
+    isHost = false;
+    myPeerIdSpan.textContent = `(click 'Host' to get an ID)`;
+    peerStatus.textContent = 'Status: Disconnected';
+    peerStatus.classList.remove('connected');
+    updatePeerUI(false, false);
+}
+
+function updatePeerUI(isConnected, isPeer) {
+    hostBtn.style.display = isConnected ? 'none' : 'block';
+    connectContainer.style.display = isConnected ? 'none' : 'block';
+    disconnectBtn.style.display = isConnected ? 'block' : 'none';
+
+    // Disable TTS controls if a peer and not connected
+    const disableTTS = isPeer && !isConnected;
+    textInput.disabled = disableTTS;
+    document.querySelector('.voice-section').style.pointerEvents = disableTTS ? 'none' : 'auto';
+    document.querySelector('.preset-section').style.pointerEvents = disableTTS ? 'none' : 'auto';
+
+    if (isPeer && isConnected) {
+        // Peer is connected, they can only listen
+        document.querySelector('.tts-section .input-group').style.display = 'none';
+        document.querySelector('.tts-section .controls button').style.display = 'none';
+    } else {
+        document.querySelector('.tts-section .input-group').style.display = 'block';
+        document.querySelector('.tts-section .controls button').style.display = 'inline-flex';
+    }
+}
 
 function addVoice() {
     const voiceId = voiceIdInput.value.trim();
@@ -101,8 +224,8 @@ function renderVoiceList() {
                 <div class="voice-id">${voice.name}</div>
             </div>
             <div class="voice-actions">
-                <button onclick="selectVoice('${voice.id}')">Select</button>
-                <button class="delete-btn" onclick="deleteVoice('${voice.id}')">Delete</button>
+                <button ${isHost || !peer ? `onclick="selectVoice('${voice.id}')"` : 'disabled title="Only host can select voices"'} >Select</button>
+                <button class="delete-btn" ${isHost || !peer ? `onclick="deleteVoice('${voice.id}')"` : 'disabled title="Only host can manage voices"'}>Delete</button>
             </div>
         `;
         
@@ -127,15 +250,18 @@ async function speakText() {
             URL.revokeObjectURL(currentAudioUrl);
         }
 
-        // Create audio element and play
-        audioPlayer.src = result.url;
+        currentAudioUrl = result.url;
+        
+        // If host, send to peer. If peer, this function shouldn't be callable.
+        if (isHost && conn && conn.open) {
+            conn.send({ type: 'tts', url: currentAudioUrl });
+        }
+
+        // Play audio for the user who initiated it (the host)
+        audioPlayer.src = currentAudioUrl;
         audioPlayer.style.display = 'block';
         await audioPlayer.play();
         
-        currentAudioUrl = result.url;
-        
-        // Broadcast TTS to connected peers
-        connections.forEach(conn => conn.send({ type: 'tts', url: result.url }));
     } catch (error) {
         console.error('Error generating speech:', error);
         alert('Error generating speech. Please check the voice ID and try again.');
@@ -145,15 +271,21 @@ async function speakText() {
     }
 }
 
+function playReceivedAudio(url) {
+    console.log('Received audio to play:', url);
+    audioPlayer.src = url;
+    audioPlayer.style.display = 'block';
+    audioPlayer.play().catch(e => console.error("Error playing received audio:", e));
+}
+
 function stopAudio() {
     audioPlayer.pause();
     audioPlayer.currentTime = 0;
-    // Broadcast stop event
-    connections.forEach(conn => conn.send({ type: 'stop' }));
 }
 
 function updateButtonStates() {
-    speakBtn.disabled = !selectedVoiceId || !textInput.value.trim();
+    const canSpeak = (isHost || !peer) && selectedVoiceId && textInput.value.trim();
+    speakBtn.disabled = !canSpeak;
     stopBtn.disabled = !audioPlayer.src;
 }
 
@@ -167,74 +299,3 @@ textInput.addEventListener('input', updateButtonStates);
 // Make functions global for onclick handlers
 window.selectVoice = selectVoice;
 window.deleteVoice = deleteVoice;
-
-/* PeerJS connection logic */
-function hostSession() {
-    if (peer) {
-        peer.destroy();
-        connections = [];
-    }
-    peer = new Peer();
-    peer.on('open', id => {
-        // display the generated session ID
-        sessionIdDisplay.value = id;
-        peerStatus.innerHTML = `<strong>Your Session ID:</strong> ${id}<br><em>Waiting for connection...</em>`;
-    });
-    peer.on('connection', conn => {
-        conn.on('open', () => {
-            connections.push(conn);
-            peerStatus.textContent = 'Connected with: ' + conn.peer;
-            conn.on('data', handlePeerData);
-            conn.on('close', () => {
-                connections = connections.filter(c => c !== conn);
-                peerStatus.textContent = 'Peer disconnected';
-            });
-        });
-    });
-    peer.on('error', err => {
-        console.error(err);
-        alert('Peer error: ' + err);
-    });
-}
-
-function joinSession() {
-    const hostId = sessionIdInput.value.trim();
-    if (!hostId) return;
-    if (peer) {
-        peer.destroy();
-        connections = [];
-    }
-    peer = new Peer();
-    peer.on('open', id => {
-        peerStatus.textContent = 'Your ID: ' + id;
-        const conn = peer.connect(hostId);
-        conn.on('open', () => {
-            connections.push(conn);
-            peerStatus.textContent = 'Connected to host: ' + hostId;
-            conn.on('data', handlePeerData);
-            conn.on('close', () => {
-                connections = connections.filter(c => c !== conn);
-                peerStatus.textContent = 'Disconnected';
-            });
-        });
-        conn.on('error', err => {
-            console.error(err);
-            alert('Connection error: ' + err);
-        });
-    });
-    peer.on('error', err => {
-        console.error(err);
-        alert('Peer error: ' + err);
-    });
-}
-
-function handlePeerData(data) {
-    if (data.type === 'tts') {
-        audioPlayer.src = data.url;
-        audioPlayer.style.display = 'block';
-        audioPlayer.play();
-    } else if (data.type === 'stop') {
-        audioPlayer.pause();
-        audioPlayer.currentTime = 0;
-    }
-}

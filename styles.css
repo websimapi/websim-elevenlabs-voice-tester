@@ -180,6 +180,23 @@ button:disabled {
     background: #ff3742;
 }
 
+#peer-status {
+    margin-bottom: 15px;
+    font-weight: 500;
+    padding: 10px;
+    background: #f0f0f0;
+    border-radius: 6px;
+    transition: all 0.3s;
+}
+
+#myPeerId {
+    font-family: monospace;
+    background: #e0e0e0;
+    padding: 2px 6px;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
 .loading {
     opacity: 0.6;
     pointer-events: none;
@@ -197,15 +214,4 @@ button:disabled {
     header h1 {
         font-size: 2rem;
     }
-}
-
-.peer-section .input-group {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-}
-
-.peer-section .input-group input {
-    flex: 1;
-    width: auto;
 }
