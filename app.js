@@ -29,10 +29,12 @@ const stopListeningBtn = document.getElementById('stopListeningBtn');
 const generateRapBtn = document.getElementById('generateRapBtn');
 const transcriptionContainer = document.getElementById('transcriptionContainer');
 const transcriptionOutput = document.getElementById('transcriptionOutput');
+const capturedAudio = document.getElementById('capturedAudio');
 
 // Speech Recognition
 let recognition = null;
 let transcribedText = '';
+let mediaStream = null;
 
 // Initialize
 renderVoiceList();
@@ -98,39 +100,75 @@ if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
     recognition.onstart = () => {
         startListeningBtn.style.display = 'none';
         stopListeningBtn.style.display = 'inline-flex';
-        stopListeningBtn.textContent = "Stop Listening";
+        stopListeningBtn.textContent = "Stop Capturing";
         transcriptionContainer.style.display = 'block';
         generateRapBtn.disabled = true;
     };
 
     recognition.onend = () => {
-        startListeningBtn.style.display = 'inline-flex';
-        stopListeningBtn.style.display = 'none';
-        generateRapBtn.disabled = !transcribedText.trim();
+        // Don't hide the stop button here, it's handled in stopListening
     };
 
     recognition.onerror = (event) => {
         console.error('Speech recognition error:', event.error);
-        alert(`Speech recognition error: ${event.error}`);
-        if(recognition && stopListeningBtn.style.display !== 'none'){
-            recognition.stop();
-        }
+        alert(`Speech recognition error: ${event.error}. Ensure you selected a tab with audio and granted permissions.`);
+        stopListening();
     };
 
-    startListeningBtn.addEventListener('click', () => {
-        transcribedText = '';
-        transcriptionOutput.innerHTML = '';
-        recognition.start();
-    });
-
-    stopListeningBtn.addEventListener('click', () => {
-        recognition.stop();
-    });
+    startListeningBtn.addEventListener('click', startListening);
+    stopListeningBtn.addEventListener('click', stopListening);
 
     generateRapBtn.addEventListener('click', generateRapResponse);
 
 } else {
     document.querySelector('.ai-battle-section').innerHTML = '<h2>AI Rap Battle</h2><p>Sorry, your browser does not support the Web Speech API for transcription.</p>';
+}
+
+async function startListening() {
+    try {
+        mediaStream = await navigator.mediaDevices.getDisplayMedia({
+            video: true,
+            audio: {
+                echoCancellation: true,
+                noiseSuppression: true,
+                sampleRate: 44100,
+            },
+        });
+
+        // Use a hidden audio element to play the captured audio.
+        // This is a workaround to make sure the stream is active and can be picked up.
+        capturedAudio.srcObject = mediaStream;
+        capturedAudio.play().catch(e => console.error("Error playing captured audio:", e));
+        
+        // Stop any previous video track to save resources
+        mediaStream.getVideoTracks().forEach(track => track.stop());
+
+        transcribedText = '';
+        transcriptionOutput.innerHTML = '';
+        recognition.start();
+
+    } catch (err) {
+        console.error("Error starting tab capture:", err);
+        if (err.name === 'NotAllowedError') {
+            alert("Permission to capture tab was denied. Please try again and allow access.");
+        } else {
+            alert(`An error occurred: ${err.name}`);
+        }
+    }
+}
+
+function stopListening() {
+    if (recognition) {
+        recognition.stop();
+    }
+    if (mediaStream) {
+        mediaStream.getTracks().forEach(track => track.stop());
+        mediaStream = null;
+    }
+    capturedAudio.srcObject = null;
+    startListeningBtn.style.display = 'inline-flex';
+    stopListeningBtn.style.display = 'none';
+    generateRapBtn.disabled = !transcribedText.trim();
 }
 
 async function generateRapResponse() {

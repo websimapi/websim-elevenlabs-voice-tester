@@ -54,9 +54,9 @@
 
             <section class="ai-battle-section">
                 <h2>AI Rap Battle</h2>
-                <p>Use your mic to listen to audio from another tab (or your own voice). The AI will generate a rap battle response.</p>
+                <p>Capture audio from another browser tab (e.g., a YouTube video) to have the AI generate a rap battle response.</p>
                 <div class="controls">
-                    <button id="startListeningBtn">Start Listening</button>
+                    <button id="startListeningBtn">Capture Tab Audio</button>
                     <button id="stopListeningBtn" style="display: none;">Stop Listening</button>
                     <button id="generateRapBtn" disabled>Generate Rap Response</button>
                 </div>
@@ -64,6 +64,7 @@
                     <h3>Transcription:</h3>
                     <div id="transcriptionOutput"></div>
                 </div>
+                <audio id="capturedAudio" playsinline style="display: none;"></audio>
             </section>
 
             <section class="preset-section">
