@@ -39,21 +39,32 @@ voiceIdInput.addEventListener('keypress', (e) => {
 speakBtn.addEventListener('click', speakText);
 stopBtn.addEventListener('click', stopAudio);
 
-peerReadyBtn.addEventListener('click', () => {
-    // This user gesture allows us to play audio later.
-    // A common trick is to play the audio player muted.
-    audioPlayer.muted = true;
-    const promise = audioPlayer.play();
-    if (promise !== undefined) {
-        promise.then(() => {
-            audioPlayer.pause();
-            audioPlayer.currentTime = 0;
-            audioPlayer.muted = false;
-        }).catch(() => {
-            // Even if it fails, the gesture is often registered.
-            audioPlayer.muted = false;
-        });
+peerReadyBtn.addEventListener('click', async () => {
+    try {
+        // Create a very short silent audio to establish user gesture
+        const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        const oscillator = audioContext.createOscillator();
+        const gainNode = audioContext.createGain();
+        
+        oscillator.connect(gainNode);
+        gainNode.connect(audioContext.destination);
+        
+        // Make it silent
+        gainNode.gain.value = 0;
+        oscillator.frequency.value = 440;
+        
+        oscillator.start();
+        oscillator.stop(audioContext.currentTime + 0.01);
+        
+        // Also try to play a silent audio element
+        const silentAudio = new Audio('data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhOSGM1/PNeSsFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhOSGM1/PNeSsFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhOSGM1/PNeSsFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhOSGM1/PNeSsFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhOSGM1/PNeSsFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhOSGM1/PNeSsFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhOSGM1/PNeSsFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhOSGM1/PNeSsFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhOSGM1/PNeSsFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhOSGM1/PNeSsFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhOSGM1/PNeSsFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhO');
+        silentAudio.volume = 0;
+        await silentAudio.play();
+        
+    } catch (error) {
+        console.log('Audio context setup failed, but user gesture is registered:', error);
     }
+    
     peerReadyContainer.style.display = 'none';
     console.log('Peer is ready to receive audio.');
     peerStatus.textContent += ' - Ready for audio!';
@@ -134,9 +145,9 @@ function connectToHost() {
             updatePeerUI(true, true);
         });
 
-        conn.on('data', data => {
-            if (data.type === 'tts-blob') {
-                playReceivedAudioBlob(data.blob);
+        conn.on('data', async data => {
+            if (data.type === 'tts-audio') {
+                await playReceivedAudioFromArrayBuffer(data.arrayBuffer);
             }
         });
 
@@ -283,11 +294,11 @@ async function speakText() {
         currentAudioUrl = result.url;
         
         // If host, fetch blob and send to peer *before* playing locally.
-        // This can reduce perceived latency for the peer.
         if (isHost && conn && conn.open) {
             const response = await fetch(currentAudioUrl);
             const audioBlob = await response.blob();
-            conn.send({ type: 'tts-blob', blob: audioBlob });
+            const arrayBuffer = await audioBlob.arrayBuffer();
+            conn.send({ type: 'tts-audio', arrayBuffer: arrayBuffer });
         }
 
         // Play audio for the user who initiated it
@@ -305,17 +316,35 @@ async function speakText() {
     }
 }
 
-function playReceivedAudioBlob(blob) {
-    console.log('Received audio blob to play:', blob);
-    if (receivedAudioBlobUrl) {
-        URL.revokeObjectURL(receivedAudioBlobUrl);
-    }
+async function playReceivedAudioFromArrayBuffer(arrayBuffer) {
+    console.log('Received audio arrayBuffer to play:', arrayBuffer);
+    try {
+        if (receivedAudioBlobUrl) {
+            URL.revokeObjectURL(receivedAudioBlobUrl);
+        }
 
-    receivedAudioBlobUrl = URL.createObjectURL(blob);
-    audioPlayer.src = receivedAudioBlobUrl;
-    audioPlayer.style.display = 'block';
-    audioPlayer.play().catch(e => console.error("Error playing received audio:", e));
-    updateButtonStates();
+        const blob = new Blob([arrayBuffer], { type: 'audio/mpeg' });
+        receivedAudioBlobUrl = URL.createObjectURL(blob);
+        audioPlayer.src = receivedAudioBlobUrl;
+        audioPlayer.style.display = 'block';
+        
+        // Force play with better error handling
+        try {
+            await audioPlayer.play();
+            console.log('Audio playing successfully');
+        } catch (playError) {
+            console.error('Failed to auto-play audio:', playError);
+            // Show a notification or button for manual play if auto-play fails
+            alert('Audio ready to play - click the audio controls to play');
+        }
+        
+        updateButtonStates();
+    } catch (error) {
+        console.error('Error processing received audio:', error);
+    }
+}
+
+function playReceivedAudioBlob(blob) {
 }
 
 function stopAudio() {
