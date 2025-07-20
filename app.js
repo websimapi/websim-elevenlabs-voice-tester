@@ -1,4 +1,4 @@
-import Peer from 'peerjs';
+import { Peer } from 'peerjs';
 
 let voices = JSON.parse(localStorage.getItem('elevenlabs_voices') || '[]');
 let selectedVoiceId = localStorage.getItem('selected_voice') || null;
