@@ -50,6 +50,11 @@ section h2 {
     color: #667eea;
 }
 
+#peer-ready-container p {
+    color: #555;
+    font-size: 1rem;
+}
+
 .input-group {
     margin-bottom: 20px;
 }

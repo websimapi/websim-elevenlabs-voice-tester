@@ -23,6 +23,8 @@ const hostIdInput = document.getElementById('hostIdInput');
 const peerStatus = document.getElementById('peer-status');
 const myPeerIdSpan = document.getElementById('myPeerId');
 const connectContainer = document.getElementById('connect-container');
+const peerReadyContainer = document.getElementById('peer-ready-container');
+const peerReadyBtn = document.getElementById('peerReadyBtn');
 
 // Initialize
 renderVoiceList();
@@ -36,6 +38,26 @@ voiceIdInput.addEventListener('keypress', (e) => {
 
 speakBtn.addEventListener('click', speakText);
 stopBtn.addEventListener('click', stopAudio);
+
+peerReadyBtn.addEventListener('click', () => {
+    // This user gesture allows us to play audio later.
+    // A common trick is to play the audio player muted.
+    audioPlayer.muted = true;
+    const promise = audioPlayer.play();
+    if (promise !== undefined) {
+        promise.then(() => {
+            audioPlayer.pause();
+            audioPlayer.currentTime = 0;
+            audioPlayer.muted = false;
+        }).catch(() => {
+            // Even if it fails, the gesture is often registered.
+            audioPlayer.muted = false;
+        });
+    }
+    peerReadyContainer.style.display = 'none';
+    console.log('Peer is ready to receive audio.');
+    peerStatus.textContent += ' - Ready for audio!';
+});
 
 // PeerJS Listeners
 hostBtn.addEventListener('click', startHosting);
@@ -149,7 +171,7 @@ function disconnect() {
 }
 
 function updatePeerUI(isConnected, isPeer) {
-    hostBtn.style.display = isConnected ? 'none' : 'block';
+    hostBtn.style.display = isConnected ? 'none' : 'inline-flex';
     connectContainer.style.display = isConnected ? 'none' : 'block';
     disconnectBtn.style.display = isConnected ? 'block' : 'none';
 
@@ -158,17 +180,20 @@ function updatePeerUI(isConnected, isPeer) {
     document.querySelector('.voice-section').style.pointerEvents = isClient ? 'none' : 'auto';
     document.querySelector('.preset-section').style.pointerEvents = isClient ? 'none' : 'auto';
     
-    // As per previous logic, which seems correct
-    if (isPeer && isConnected) {
-        // Peer is connected, they can only listen
-        document.querySelector('.tts-section .input-group').style.display = 'none';
-        document.querySelector('.tts-section .controls button#speakBtn').style.display = 'none';
-        document.querySelector('.tts-section .controls button#stopBtn').style.display = 'inline-flex';
-    } else {
-        document.querySelector('.tts-section .input-group').style.display = 'block';
-        document.querySelector('.tts-section .controls button').style.display = 'inline-flex';
-        renderVoiceList(); // Re-render to enable/disable buttons
+    document.querySelector('.tts-section .input-group').style.display = isClient ? 'none' : 'block';
+    speakBtn.style.display = isClient ? 'none' : 'inline-flex';
+    peerReadyContainer.style.display = isClient ? 'block' : 'none';
+    
+    if (!isConnected) {
+        peerReadyContainer.style.display = 'none';
     }
+
+    if (isClient) {
+        textInput.value = ''; // Clear host's text input if they become a client
+    }
+    
+    renderVoiceList(); // Re-render to enable/disable buttons
+    updateButtonStates();
 }
 
 function addVoice() {
@@ -257,18 +282,19 @@ async function speakText() {
 
         currentAudioUrl = result.url;
         
-        // Play audio for the user who initiated it (the host)
-        audioPlayer.src = currentAudioUrl;
-        audioPlayer.style.display = 'block';
-        await audioPlayer.play();
-        updateButtonStates();
-        
-        // If host, fetch blob and send to peer.
+        // If host, fetch blob and send to peer *before* playing locally.
+        // This can reduce perceived latency for the peer.
         if (isHost && conn && conn.open) {
             const response = await fetch(currentAudioUrl);
             const audioBlob = await response.blob();
             conn.send({ type: 'tts-blob', blob: audioBlob });
         }
+
+        // Play audio for the user who initiated it
+        audioPlayer.src = currentAudioUrl;
+        audioPlayer.style.display = 'block';
+        audioPlayer.play().catch(e => console.error("Error playing host audio:", e));
+        updateButtonStates();
         
     } catch (error) {
         console.error('Error generating speech:', error);
