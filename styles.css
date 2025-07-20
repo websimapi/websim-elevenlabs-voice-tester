@@ -224,15 +224,37 @@ button:disabled {
     background: #f0f0f0;
 }
 
-.audio-history-item p {
+.audio-history-info {
     flex: 1;
     margin-right: 15px;
-    color: #555;
+    overflow: hidden;
+}
+
+.audio-history-info .history-text {
+    color: #333;
+    font-weight: 500;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    margin-bottom: 4px;
+}
+
+.audio-history-info .history-voice {
+    color: #777;
+    font-size: 13px;
 }
 
 .audio-history-item .play-btn {
-    padding: 8px 16px;
+    padding: 8px 12px;
     font-size: 14px;
+    background: #764ba2;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.audio-history-item .play-btn:hover {
+    background: #6a4391;
 }
 
 @media (max-width: 600px) {
