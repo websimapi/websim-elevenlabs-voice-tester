@@ -1,6 +1,7 @@
 let voices = JSON.parse(localStorage.getItem('elevenlabs_voices') || '[]');
 let selectedVoiceId = localStorage.getItem('selected_voice') || null;
 let currentAudioUrl = null;
+const audioCache = new Map(); // Cache for audio blobs: key -> { blob, text, voiceId }
 
 // PeerJS variables
 let peer = null;
@@ -22,10 +23,12 @@ const hostIdInput = document.getElementById('hostIdInput');
 const peerStatus = document.getElementById('peer-status');
 const myPeerIdSpan = document.getElementById('myPeerId');
 const connectContainer = document.getElementById('connect-container');
+const audioHistoryList = document.getElementById('audioHistoryList');
 
 // Initialize
 renderVoiceList();
 updateButtonStates();
+renderAudioHistory();
 
 // Event listeners
 addVoiceBtn.addEventListener('click', addVoice);
@@ -112,8 +115,17 @@ function connectToHost() {
         });
 
         conn.on('data', data => {
-            if (data.type === 'tts') {
-                playReceivedAudio(data.url);
+            if (data.type === 'tts-blob') {
+                const blob = new Blob([data.blob], { type: 'audio/mpeg' });
+                const localUrl = URL.createObjectURL(blob);
+                audioCache.set(data.id, { blob, text: data.text, voiceId: data.voiceId, url: localUrl });
+                renderAudioHistory();
+                playAudio(localUrl);
+            } else if (data.type === 'play-cached') {
+                const cachedAudio = audioCache.get(data.id);
+                if (cachedAudio && cachedAudio.url) {
+                    playAudio(cachedAudio.url);
+                }
             }
         });
 
@@ -161,10 +173,12 @@ function updatePeerUI(isConnected, isPeer) {
     if (isPeer && isConnected) {
         // Peer is connected, they can only listen
         document.querySelector('.tts-section .input-group').style.display = 'none';
-        document.querySelector('.tts-section .controls button').style.display = 'none';
+        document.querySelector('.tts-section .controls button#speakBtn').style.display = 'none';
+        document.querySelector('.tts-section .controls button#stopBtn').style.display = 'none';
     } else {
         document.querySelector('.tts-section .input-group').style.display = 'block';
-        document.querySelector('.tts-section .controls button').style.display = 'inline-flex';
+        document.querySelector('.tts-section .controls button#speakBtn').style.display = 'inline-flex';
+        document.querySelector('.tts-section .controls button#stopBtn').style.display = 'inline-flex';
     }
 }
 
@@ -215,6 +229,12 @@ function deleteVoice(voiceId) {
 function renderVoiceList() {
     voiceList.innerHTML = '';
     
+    // Clear existing onclick handlers to prevent memory leaks
+    Array.from(voiceList.getElementsByTagName('button')).forEach(btn => {
+        const newBtn = btn.cloneNode(true);
+        btn.parentNode.replaceChild(newBtn, btn);
+    });
+
     voices.forEach(voice => {
         const item = document.createElement('div');
         item.className = `voice-item ${voice.id === selectedVoiceId ? 'selected' : ''}`;
@@ -224,58 +244,77 @@ function renderVoiceList() {
                 <div class="voice-id">${voice.name}</div>
             </div>
             <div class="voice-actions">
-                <button ${isHost || !peer ? `onclick="selectVoice('${voice.id}')"` : 'disabled title="Only host can select voices"'} >Select</button>
-                <button class="delete-btn" ${isHost || !peer ? `onclick="deleteVoice('${voice.id}')"` : 'disabled title="Only host can manage voices"'}>Delete</button>
+                <button class="select-btn" data-voice-id="${voice.id}" ${isHost || !peer ? '' : 'disabled title="Only host can select voices"'} >Select</button>
+                <button class="delete-btn" data-voice-id="${voice.id}" ${isHost || !peer ? '' : 'disabled title="Only host can manage voices"'}>Delete</button>
             </div>
         `;
         
         voiceList.appendChild(item);
     });
+
+    voiceList.querySelectorAll('.select-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => selectVoice(e.target.dataset.voiceId));
+    });
+    voiceList.querySelectorAll('.delete-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => deleteVoice(e.target.dataset.voiceId));
+    });
 }
 
 async function speakText() {
     if (!selectedVoiceId || !textInput.value.trim()) return;
+    const text = textInput.value.trim();
+    const audioId = `${selectedVoiceId}:${text}`;
+
+    if (audioCache.has(audioId)) {
+        const cached = audioCache.get(audioId);
+        playAudio(cached.url);
+        if (isHost && conn && conn.open) {
+            conn.send({ type: 'play-cached', id: audioId });
+        }
+        return;
+    }
 
     speakBtn.disabled = true;
     speakBtn.textContent = 'Generating...';
 
     try {
         const result = await websim.textToSpeech({
-            text: textInput.value,
+            text: text,
             voice: selectedVoiceId,
         });
 
-        // Clean up previous audio
-        if (currentAudioUrl) {
-            URL.revokeObjectURL(currentAudioUrl);
-        }
+        const response = await fetch(result.url);
+        const blob = await response.blob();
+        const localUrl = URL.createObjectURL(blob);
 
-        currentAudioUrl = result.url;
+        audioCache.set(audioId, { blob, text, voiceId: selectedVoiceId, url: localUrl });
+        renderAudioHistory();
         
-        // If host, send to peer. If peer, this function shouldn't be callable.
         if (isHost && conn && conn.open) {
-            conn.send({ type: 'tts', url: currentAudioUrl });
+            conn.send({ type: 'tts-blob', id: audioId, blob: blob, text: text, voiceId: selectedVoiceId });
         }
 
-        // Play audio for the user who initiated it (the host)
-        audioPlayer.src = currentAudioUrl;
-        audioPlayer.style.display = 'block';
-        await audioPlayer.play();
+        playAudio(localUrl);
         
     } catch (error) {
         console.error('Error generating speech:', error);
         alert('Error generating speech. Please check the voice ID and try again.');
     } finally {
-        speakBtn.disabled = false;
+        updateButtonStates();
         speakBtn.textContent = 'Speak';
     }
 }
 
-function playReceivedAudio(url) {
-    console.log('Received audio to play:', url);
+function playAudio(url) {
     audioPlayer.src = url;
     audioPlayer.style.display = 'block';
-    audioPlayer.play().catch(e => console.error("Error playing received audio:", e));
+    audioPlayer.play().catch(e => console.error("Error playing audio:", e));
+    updateButtonStates();
+}
+
+function playReceivedAudio(url) {
+    console.log('Received audio to play:', url);
+    playAudio(url);
 }
 
 function stopAudio() {
@@ -285,8 +324,8 @@ function stopAudio() {
 
 function updateButtonStates() {
     const canSpeak = (isHost || !peer) && selectedVoiceId && textInput.value.trim();
-    speakBtn.disabled = !canSpeak;
-    stopBtn.disabled = !audioPlayer.src;
+    speakBtn.disabled = !canSpeak || (speakBtn.textContent === 'Generating...');
+    stopBtn.disabled = !audioPlayer.src || audioPlayer.paused;
 }
 
 function saveVoices() {
@@ -296,6 +335,11 @@ function saveVoices() {
 // Text input listener
 textInput.addEventListener('input', updateButtonStates);
 
+audioPlayer.addEventListener('play', updateButtonStates);
+audioPlayer.addEventListener('pause', updateButtonStates);
+audioPlayer.addEventListener('ended', updateButtonStates);
+
 // Make functions global for onclick handlers
-window.selectVoice = selectVoice;
-window.deleteVoice = deleteVoice;
+// No longer needed as we use event listeners
+// window.selectVoice = selectVoice;
+// window.deleteVoice = deleteVoice;
