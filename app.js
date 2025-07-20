@@ -1,7 +1,6 @@
 let voices = JSON.parse(localStorage.getItem('elevenlabs_voices') || '[]');
 let selectedVoiceId = localStorage.getItem('selected_voice') || null;
 let currentAudioUrl = null;
-let receivedAudioBlobUrl = null; // For peer to manage received audio
 
 // PeerJS variables
 let peer = null;
@@ -23,8 +22,17 @@ const hostIdInput = document.getElementById('hostIdInput');
 const peerStatus = document.getElementById('peer-status');
 const myPeerIdSpan = document.getElementById('myPeerId');
 const connectContainer = document.getElementById('connect-container');
-const peerReadyContainer = document.getElementById('peer-ready-container');
-const peerReadyBtn = document.getElementById('peerReadyBtn');
+
+// AI Rap Battle elements
+const startListeningBtn = document.getElementById('startListeningBtn');
+const stopListeningBtn = document.getElementById('stopListeningBtn');
+const generateRapBtn = document.getElementById('generateRapBtn');
+const transcriptionContainer = document.getElementById('transcriptionContainer');
+const transcriptionOutput = document.getElementById('transcriptionOutput');
+
+// Speech Recognition
+let recognition = null;
+let transcribedText = '';
 
 // Initialize
 renderVoiceList();
@@ -38,37 +46,6 @@ voiceIdInput.addEventListener('keypress', (e) => {
 
 speakBtn.addEventListener('click', speakText);
 stopBtn.addEventListener('click', stopAudio);
-
-peerReadyBtn.addEventListener('click', async () => {
-    try {
-        // Create a very short silent audio to establish user gesture
-        const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-        const oscillator = audioContext.createOscillator();
-        const gainNode = audioContext.createGain();
-        
-        oscillator.connect(gainNode);
-        gainNode.connect(audioContext.destination);
-        
-        // Make it silent
-        gainNode.gain.value = 0;
-        oscillator.frequency.value = 440;
-        
-        oscillator.start();
-        oscillator.stop(audioContext.currentTime + 0.01);
-        
-        // Also try to play a silent audio element
-        const silentAudio = new Audio('data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhOSGM1/PNeSsFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhOSGM1/PNeSsFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhOSGM1/PNeSsFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhOSGM1/PNeSsFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhOSGM1/PNeSsFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhOSGM1/PNeSsFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhOSGM1/PNeSsFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhOSGM1/PNeSsFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhOSGM1/PNeSsFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhOSGM1/PNeSsFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhOSGM1/PNeSsFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhO');
-        silentAudio.volume = 0;
-        await silentAudio.play();
-        
-    } catch (error) {
-        console.log('Audio context setup failed, but user gesture is registered:', error);
-    }
-    
-    peerReadyContainer.style.display = 'none';
-    console.log('Peer is ready to receive audio.');
-    peerStatus.textContent += ' - Ready for audio!';
-});
 
 // PeerJS Listeners
 hostBtn.addEventListener('click', startHosting);
@@ -90,6 +67,109 @@ document.querySelectorAll('.preset-btn').forEach(btn => {
         addVoiceFromPreset(voiceId, name);
     });
 });
+
+// AI Rap Battle Listeners
+if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    recognition = new SpeechRecognition();
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    recognition.lang = 'en-US';
+
+    recognition.onresult = (event) => {
+        let interim_transcript = '';
+        let final_transcript = '';
+
+        for (let i = event.resultIndex; i < event.results.length; ++i) {
+            if (event.results[i].isFinal) {
+                final_transcript += event.results[i][0].transcript;
+            } else {
+                interim_transcript += event.results[i][0].transcript;
+            }
+        }
+        
+        if (final_transcript) {
+            transcribedText += (transcribedText ? ' ' : '') + final_transcript;
+        }
+
+        transcriptionOutput.innerHTML = transcribedText + `<i style="color: #999;">${interim_transcript}</i>`;
+    };
+
+    recognition.onstart = () => {
+        startListeningBtn.style.display = 'none';
+        stopListeningBtn.style.display = 'inline-flex';
+        stopListeningBtn.textContent = "Stop Listening";
+        transcriptionContainer.style.display = 'block';
+        generateRapBtn.disabled = true;
+    };
+
+    recognition.onend = () => {
+        startListeningBtn.style.display = 'inline-flex';
+        stopListeningBtn.style.display = 'none';
+        generateRapBtn.disabled = !transcribedText.trim();
+    };
+
+    recognition.onerror = (event) => {
+        console.error('Speech recognition error:', event.error);
+        alert(`Speech recognition error: ${event.error}`);
+        if(recognition && stopListeningBtn.style.display !== 'none'){
+            recognition.stop();
+        }
+    };
+
+    startListeningBtn.addEventListener('click', () => {
+        transcribedText = '';
+        transcriptionOutput.innerHTML = '';
+        recognition.start();
+    });
+
+    stopListeningBtn.addEventListener('click', () => {
+        recognition.stop();
+    });
+
+    generateRapBtn.addEventListener('click', generateRapResponse);
+
+} else {
+    document.querySelector('.ai-battle-section').innerHTML = '<h2>AI Rap Battle</h2><p>Sorry, your browser does not support the Web Speech API for transcription.</p>';
+}
+
+async function generateRapResponse() {
+    if (!transcribedText.trim() || !selectedVoiceId) {
+        alert("Please record something and select a voice first.");
+        return;
+    }
+
+    generateRapBtn.disabled = true;
+    generateRapBtn.textContent = 'AI is thinking...';
+
+    try {
+        const completion = await websim.chat.completions.create({
+            messages: [
+                {
+                    role: "system",
+                    content: "You are a witty and sharp AI rapper. You will be given a text transcription of your opponent's rap. Your task is to generate a short, clever, and powerful rap battle response. The response should be a comeback that directly addresses or cleverly flips what your opponent said. Keep it concise, 2-4 lines long.",
+                },
+                {
+                    role: 'user',
+                    content: `My opponent's rap: "${transcribedText}"`
+                }
+            ],
+        });
+        
+        const rapResponse = completion.content;
+        
+        // Use existing TTS function to speak the response
+        textInput.value = rapResponse; // Put response in the main textbox
+        await speakText();
+
+    } catch (error) {
+        console.error("Error generating rap response:", error);
+        alert("Sorry, there was an error with the AI. Please try again.");
+    } finally {
+        generateRapBtn.disabled = false;
+        generateRapBtn.textContent = 'Generate Rap Response';
+    }
+}
 
 function startHosting() {
     isHost = true;
@@ -145,9 +225,9 @@ function connectToHost() {
             updatePeerUI(true, true);
         });
 
-        conn.on('data', async data => {
-            if (data.type === 'tts-audio') {
-                await playReceivedAudioFromArrayBuffer(data.arrayBuffer);
+        conn.on('data', data => {
+            if (data.type === 'tts') {
+                playReceivedAudio(data.url);
             }
         });
 
@@ -182,29 +262,24 @@ function disconnect() {
 }
 
 function updatePeerUI(isConnected, isPeer) {
-    hostBtn.style.display = isConnected ? 'none' : 'inline-flex';
+    hostBtn.style.display = isConnected ? 'none' : 'block';
     connectContainer.style.display = isConnected ? 'none' : 'block';
     disconnectBtn.style.display = isConnected ? 'block' : 'none';
 
-    // Disable adding/selecting voices if connected as a peer
-    const isClient = isPeer && isConnected;
-    document.querySelector('.voice-section').style.pointerEvents = isClient ? 'none' : 'auto';
-    document.querySelector('.preset-section').style.pointerEvents = isClient ? 'none' : 'auto';
-    
-    document.querySelector('.tts-section .input-group').style.display = isClient ? 'none' : 'block';
-    speakBtn.style.display = isClient ? 'none' : 'inline-flex';
-    peerReadyContainer.style.display = isClient ? 'block' : 'none';
-    
-    if (!isConnected) {
-        peerReadyContainer.style.display = 'none';
-    }
+    // Disable TTS controls if a peer and not connected
+    const disableTTS = isPeer && !isConnected;
+    textInput.disabled = disableTTS;
+    document.querySelector('.voice-section').style.pointerEvents = disableTTS ? 'none' : 'auto';
+    document.querySelector('.preset-section').style.pointerEvents = disableTTS ? 'none' : 'auto';
 
-    if (isClient) {
-        textInput.value = ''; // Clear host's text input if they become a client
+    if (isPeer && isConnected) {
+        // Peer is connected, they can only listen
+        document.querySelector('.tts-section .input-group').style.display = 'none';
+        document.querySelector('.tts-section .controls button').style.display = 'none';
+    } else {
+        document.querySelector('.tts-section .input-group').style.display = 'block';
+        document.querySelector('.tts-section .controls button').style.display = 'inline-flex';
     }
-    
-    renderVoiceList(); // Re-render to enable/disable buttons
-    updateButtonStates();
 }
 
 function addVoice() {
@@ -258,15 +333,13 @@ function renderVoiceList() {
         const item = document.createElement('div');
         item.className = `voice-item ${voice.id === selectedVoiceId ? 'selected' : ''}`;
         
-        const isClient = !isHost && peer && conn;
-
         item.innerHTML = `
             <div class="voice-info">
                 <div class="voice-id">${voice.name}</div>
             </div>
             <div class="voice-actions">
-                <button ${isClient ? 'disabled title="Only host can select voices"' : `onclick="selectVoice('${voice.id}')"`} >Select</button>
-                <button class="delete-btn" ${isClient ? 'disabled title="Only host can manage voices"' : `onclick="deleteVoice('${voice.id}')"`}>Delete</button>
+                <button ${isHost || !peer ? `onclick="selectVoice('${voice.id}')"` : 'disabled title="Only host can select voices"'} >Select</button>
+                <button class="delete-btn" ${isHost || !peer ? `onclick="deleteVoice('${voice.id}')"` : 'disabled title="Only host can manage voices"'}>Delete</button>
             </div>
         `;
         
@@ -293,19 +366,15 @@ async function speakText() {
 
         currentAudioUrl = result.url;
         
-        // If host, fetch blob and send to peer *before* playing locally.
+        // If host, send to peer. If peer, this function shouldn't be callable.
         if (isHost && conn && conn.open) {
-            const response = await fetch(currentAudioUrl);
-            const audioBlob = await response.blob();
-            const arrayBuffer = await audioBlob.arrayBuffer();
-            conn.send({ type: 'tts-audio', arrayBuffer: arrayBuffer });
+            conn.send({ type: 'tts', url: currentAudioUrl });
         }
 
-        // Play audio for the user who initiated it
+        // Play audio for the user who initiated it (the host)
         audioPlayer.src = currentAudioUrl;
         audioPlayer.style.display = 'block';
-        audioPlayer.play().catch(e => console.error("Error playing host audio:", e));
-        updateButtonStates();
+        await audioPlayer.play();
         
     } catch (error) {
         console.error('Error generating speech:', error);
@@ -316,52 +385,22 @@ async function speakText() {
     }
 }
 
-async function playReceivedAudioFromArrayBuffer(arrayBuffer) {
-    console.log('Received audio arrayBuffer to play:', arrayBuffer);
-    try {
-        if (receivedAudioBlobUrl) {
-            URL.revokeObjectURL(receivedAudioBlobUrl);
-        }
-
-        const blob = new Blob([arrayBuffer], { type: 'audio/mpeg' });
-        receivedAudioBlobUrl = URL.createObjectURL(blob);
-        audioPlayer.src = receivedAudioBlobUrl;
-        audioPlayer.style.display = 'block';
-        
-        // Force play with better error handling
-        try {
-            await audioPlayer.play();
-            console.log('Audio playing successfully');
-        } catch (playError) {
-            console.error('Failed to auto-play audio:', playError);
-            // Show a notification or button for manual play if auto-play fails
-            alert('Audio ready to play - click the audio controls to play');
-        }
-        
-        updateButtonStates();
-    } catch (error) {
-        console.error('Error processing received audio:', error);
-    }
-}
-
-function playReceivedAudioBlob(blob) {
+function playReceivedAudio(url) {
+    console.log('Received audio to play:', url);
+    audioPlayer.src = url;
+    audioPlayer.style.display = 'block';
+    audioPlayer.play().catch(e => console.error("Error playing received audio:", e));
 }
 
 function stopAudio() {
     audioPlayer.pause();
     audioPlayer.currentTime = 0;
-    if (receivedAudioBlobUrl) {
-        URL.revokeObjectURL(receivedAudioBlobUrl);
-        receivedAudioBlobUrl = null;
-    }
-    // Note: We don't revoke currentAudioUrl here because it's managed by speakText
-    // and might be needed again if the host wants to replay without regenerating.
 }
 
 function updateButtonStates() {
-    const canSpeak = (isHost || !peer) && selectedVoiceId && textInput.value.trim() !== '';
+    const canSpeak = (isHost || !peer) && selectedVoiceId && textInput.value.trim();
     speakBtn.disabled = !canSpeak;
-    stopBtn.disabled = audioPlayer.paused || !audioPlayer.src;
+    stopBtn.disabled = !audioPlayer.src;
 }
 
 function saveVoices() {

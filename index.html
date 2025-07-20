@@ -31,10 +31,6 @@
                 <div class="input-group">
                     <textarea id="textInput" placeholder="Enter text to speak..." rows="4"></textarea>
                 </div>
-                <div id="peer-ready-container" style="display: none; text-align: center; margin-bottom: 20px;">
-                    <p>Click "Ready" to enable audio playback from the host.</p>
-                    <button id="peerReadyBtn" style="margin-top: 10px;">Ready to Listen</button>
-                </div>
                 <div class="controls">
                     <button id="speakBtn" disabled>Speak</button>
                     <button id="stopBtn" disabled>Stop</button>
@@ -54,6 +50,20 @@
                     <button id="disconnectBtn" style="display: none;">Disconnect</button>
                 </div>
                 <div>Your ID: <span id="myPeerId">(click 'Host' to get an ID)</span></div>
+            </section>
+
+            <section class="ai-battle-section">
+                <h2>AI Rap Battle</h2>
+                <p>Use your mic to listen to audio from another tab (or your own voice). The AI will generate a rap battle response.</p>
+                <div class="controls">
+                    <button id="startListeningBtn">Start Listening</button>
+                    <button id="stopListeningBtn" style="display: none;">Stop Listening</button>
+                    <button id="generateRapBtn" disabled>Generate Rap Response</button>
+                </div>
+                <div id="transcriptionContainer" style="display: none;">
+                    <h3>Transcription:</h3>
+                    <div id="transcriptionOutput"></div>
+                </div>
             </section>
 
             <section class="preset-section">
